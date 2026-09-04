@@ -1,0 +1,88 @@
+version: 1
+case_study: oscar
+status: YELLOW
+operating_assumption: potentially_hostile
+
+principles:
+  fail_closed: true
+  human_override_required: true
+  token_is_external_untrusted_asset: true
+
+permissions:
+  chain_read: allow
+  social_read: allow
+  analytics: allow
+  evidence_archive: allow
+  draft_content: allow
+  publish_content: human_approval
+  creator_outreach: human_approval
+  wallet_connect: deny
+  wallet_sign: deny
+  token_buy: deny
+  token_sell: deny
+  token_transfer: deny
+  liquidity_action: deny
+  treasury_access: deny
+  seed_phrase_access: deny
+  private_key_access: deny
+  coordinated_trading: deny
+
+claims:
+  official_token: deny_until_verified
+  creator_endorsed: deny_until_verified
+  dev_out: deny_until_verified
+  safe_token: deny
+  guaranteed_return: deny
+
+credential_boundaries:
+  social_credentials:
+    scope: least_privilege
+    isolated_from_treasury: true
+  treasury_credentials:
+    available_to_oscar_agents: false
+  github_credentials:
+    available_to_social_agents: false
+
+kill_switch:
+  state: HALT
+  triggers:
+    - malicious_wallet_behavior_verified
+    - deployer_linked_supply_movement_threshold_exceeded
+    - credential_compromise_suspected
+    - false_affiliation_claim_published
+    - prohibited_trade_attempted
+    - prohibited_signature_attempted
+    - platform_enforcement_event
+    - aegis_critical
+  actions:
+    - disable_publishing
+    - revoke_agent_tokens
+    - block_contract_address_output
+    - block_treasury_actions
+    - snapshot_evidence
+    - require_human_reauthorization
+
+activation_gate:
+  required:
+    - verify_exact_mint
+    - identify_deployer
+    - trace_deployer_balance_and_disposals
+    - enumerate_top_holders
+    - investigate_launch_bundles
+    - check_common_funders
+    - verify_mint_authority
+    - verify_freeze_authority
+    - verify_liquidity_state
+    - classify_creator_affiliation
+
+receipts:
+  required: true
+  include:
+    - agent_identity
+    - mandate
+    - input_sources
+    - policy_decision
+    - action
+    - timestamp
+    - evidence_hashes
+    - human_approval_when_required
