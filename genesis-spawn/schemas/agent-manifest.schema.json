@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentropolis.local/schemas/genesis-spawn-agent-manifest.schema.json",
+  "title": "GENESIS-SPAWN Agent Manifest",
+  "type": "object",
+  "required": ["schema_version", "agent_id", "entry_path", "origin", "identity", "mandate", "risk", "authority", "status"],
+  "properties": {
+    "schema_version": {"type": "string", "const": "1.0.0"},
+    "agent_id": {"type": "string", "minLength": 3},
+    "entry_path": {"enum": ["SPAWN", "ADOPT", "ARRIVAL"]},
+    "origin": {
+      "type": "object",
+      "required": ["ecosystem"],
+      "properties": {
+        "ecosystem": {"type": "string"},
+        "origin_agent_id": {"type": ["string", "null"]},
+        "network": {"type": ["string", "null"]},
+        "token_address": {"type": ["string", "null"]},
+        "source_urls": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": false
+    },
+    "identity": {
+      "type": "object",
+      "required": ["display_name", "identity_status"],
+      "properties": {
+        "display_name": {"type": "string"},
+        "did": {"type": ["string", "null"]},
+        "identity_status": {"enum": ["UNVERIFIED", "VERIFIED", "DISPUTED"]},
+        "owner_or_operator": {"type": ["string", "null"]}
+      },
+      "additionalProperties": false
+    },
+    "mandate": {
+      "type": "object",
+      "required": ["purpose", "allowed_capabilities", "forbidden_capabilities"],
+      "properties": {
+        "purpose": {"type": "string"},
+        "allowed_capabilities": {"type": "array", "items": {"type": "string"}},
+        "forbidden_capabilities": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": false
+    },
+    "risk": {
+      "type": "object",
+      "required": ["tier", "aegis_state"],
+      "properties": {
+        "tier": {"enum": ["GREEN", "YELLOW", "ORANGE", "RED"]},
+        "aegis_state": {"enum": ["ALLOW", "REVIEW", "QUARANTINE", "HALT"]},
+        "flags": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": false
+    },
+    "authority": {
+      "type": "object",
+      "required": ["publish", "treasury", "trade", "verify", "sign_transactions"],
+      "properties": {
+        "publish": {"type": "boolean"},
+        "treasury": {"type": "boolean"},
+        "trade": {"type": "boolean"},
+        "verify": {"type": "boolean"},
+        "sign_transactions": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    "economics": {
+      "type": "object",
+      "properties": {
+        "mode": {"enum": ["TOKENLESS", "EXTERNAL_TOKEN", "NATIVE_TOKEN", "NONE"]},
+        "token_address": {"type": ["string", "null"]},
+        "market_metrics_observation_only": {"type": "boolean", "const": true}
+      },
+      "additionalProperties": false
+    },
+    "status": {"enum": ["DISCOVERED", "QUARANTINED", "VERIFIED_GUEST", "ACTIVE", "PROVEN", "GRADUATION_REVIEW", "CITIZEN", "REJECTED", "SUSPENDED", "HALTED", "REVOKED"]},
+    "receipt_stream": {"type": "string"}
+  },
+  "additionalProperties": false
+}
