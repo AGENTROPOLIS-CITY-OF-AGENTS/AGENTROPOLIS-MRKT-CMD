@@ -47,11 +47,28 @@ export interface RiskAssessment {
   flags: string[];
 }
 
+export interface RiggedEvidence {
+  code: string;
+  weight: number;
+  observed: number | boolean | string;
+  explanation: string;
+}
+
+export interface RiggedAssessment {
+  manipulationRiskScore: number;
+  confidence: number;
+  level: "LOW" | "ELEVATED" | "HIGH" | "CRITICAL";
+  flags: string[];
+  evidence: RiggedEvidence[];
+  disclaimer: string;
+}
+
 export interface BondWatchRecord extends TokenIdentity {
   stage: BondWatchStage;
   metrics: BondMetrics;
   liquidity: LiquidityState;
   risk: RiskAssessment;
+  rigged?: RiggedAssessment;
   metadata?: Record<string, unknown>;
   lastUpdatedAt: string;
 }
@@ -75,6 +92,7 @@ export interface TokenBondedEvent {
   riskScore: number;
   qualityScore: number;
   confidence: number;
+  rigged?: RiggedAssessment;
   receiptId: string;
 }
 
