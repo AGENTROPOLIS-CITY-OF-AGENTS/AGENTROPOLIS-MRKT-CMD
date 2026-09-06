@@ -1,18 +1,18 @@
-import { createPublicClient, http, parseAbiItem, type Address, type Hex, type Log } from "viem";
+import { createPublicClient, http, parseAbiItem, type Address } from "viem";
 import type { LaunchpadAdapter, LaunchpadObservation } from "./adapter.js";
 import type { CursorStore } from "../storage/cursor.js";
 import { FileCursorStore } from "../storage/cursor.js";
 
 const tokenLaunchedEvent = parseAbiItem(
-  "event TokenLaunched(address indexed token,address indexed curve,address indexed deployer,address creatorFeeRecipient,address pairToken,uint256 graduationThreshold,uint24 poolFee,int24 tickSpacing,uint16 creatorTaxBps,bool buybackEnabled)"
+  "event TokenLaunched(address indexed token,address indexed curve,address indexed deployer,address pairToken,uint256 launchConfigId,uint256 graduationThreshold)"
 );
 
-const launchGraduatedEvent = parseAbiItem(
-  "event LaunchGraduated(address indexed token,address indexed curve,uint256 quoteAmount,uint256 tokenAmount)"
+const launchSweptEvent = parseAbiItem(
+  "event LaunchSwept(address indexed token,uint256 quoteOut,uint256 tokenOut)"
 );
 
-const graduatedPoolCreatedEvent = parseAbiItem(
-  "event GraduatedPoolCreated(address indexed token,bytes32 indexed poolId,uint256 tokenId,uint256 quoteAmount,uint256 tokenAmount)"
+const poolGraduatedEvent = parseAbiItem(
+  "event PoolGraduated(address indexed token,uint256 positionId,uint256 tokenAmount,uint256 pairTokenAmount)"
 );
 
 const curveCompletedEvent = parseAbiItem(
@@ -39,7 +39,6 @@ const curveAbi = [
 export interface PonsV2AdapterOptions {
   rpcUrl: string;
   factory: Address;
-  chainId?: number;
   fromBlock?: bigint;
   pollIntervalMs?: number;
   cursorStore?: CursorStore;
@@ -115,10 +114,12 @@ export class PonsV2Adapter implements LaunchpadAdapter {
     });
 
     for (const log of launchLogs) {
-      const token = log.args.token as Address;
-      const curve = log.args.curve as Address;
-      const creator = log.args.deployer as Address;
-      const graduationThreshold = log.args.graduationThreshold as bigint;
+      const token = log.args.token;
+      const curve = log.args.curve;
+      const creator = log.args.deployer;
+      const graduationThreshold = log.args.graduationThreshold;
+      if (!token || !curve || !creator || graduationThreshold === undefined) continue;
+
       this.launches.set(token.toLowerCase(), { curve, creator, graduationThreshold });
 
       await onObservation({
@@ -130,26 +131,24 @@ export class PonsV2Adapter implements LaunchpadAdapter {
         observedAt: new Date().toISOString(),
         payload: {
           curve,
-          graduationThreshold: graduationThreshold.toString(),
           pairToken: log.args.pairToken,
-          poolFee: Number(log.args.poolFee),
-          tickSpacing: Number(log.args.tickSpacing),
-          creatorTaxBps: Number(log.args.creatorTaxBps),
-          buybackEnabled: Boolean(log.args.buybackEnabled),
+          launchConfigId: log.args.launchConfigId?.toString(),
+          graduationThreshold: graduationThreshold.toString(),
           source: "PonsV2LaunchFactory.TokenLaunched",
         },
       });
     }
 
-    const graduationLogs = await this.client.getLogs({
+    const sweptLogs = await this.client.getLogs({
       address: this.factory,
-      event: launchGraduatedEvent,
+      event: launchSweptEvent,
       fromBlock,
       toBlock,
     });
 
-    for (const log of graduationLogs) {
-      const token = log.args.token as Address;
+    for (const log of sweptLogs) {
+      const token = log.args.token;
+      if (!token) continue;
       await onObservation({
         kind: "GRADUATION_HINT",
         token,
@@ -157,24 +156,24 @@ export class PonsV2Adapter implements LaunchpadAdapter {
         transactionHash: log.transactionHash ?? undefined,
         observedAt: new Date().toISOString(),
         payload: {
-          curve: log.args.curve,
-          quoteAmount: (log.args.quoteAmount as bigint).toString(),
-          tokenAmount: (log.args.tokenAmount as bigint).toString(),
+          quoteOut: log.args.quoteOut?.toString(),
+          tokenOut: log.args.tokenOut?.toString(),
           curveProgress: 100,
-          source: "PonsV2LaunchFactory.LaunchGraduated",
+          source: "PonsV2LaunchFactory.LaunchSwept",
         },
       });
     }
 
     const poolLogs = await this.client.getLogs({
       address: this.factory,
-      event: graduatedPoolCreatedEvent,
+      event: poolGraduatedEvent,
       fromBlock,
       toBlock,
     });
 
     for (const log of poolLogs) {
-      const token = log.args.token as Address;
+      const token = log.args.token;
+      if (!token) continue;
       await onObservation({
         kind: "LIQUIDITY_CREATED",
         token,
@@ -183,12 +182,11 @@ export class PonsV2Adapter implements LaunchpadAdapter {
         observedAt: new Date().toISOString(),
         payload: {
           venue: "uniswap-v4",
-          pool: log.args.poolId as Hex,
-          quoteAmount: (log.args.quoteAmount as bigint).toString(),
-          tokenAmount: (log.args.tokenAmount as bigint).toString(),
-          positionTokenId: (log.args.tokenId as bigint).toString(),
+          positionId: log.args.positionId?.toString(),
+          tokenAmount: log.args.tokenAmount?.toString(),
+          pairTokenAmount: log.args.pairTokenAmount?.toString(),
           curveProgress: 100,
-          source: "PonsV2LaunchFactory.GraduatedPoolCreated",
+          source: "PonsV2LaunchFactory.PoolGraduated",
         },
       });
     }
@@ -201,36 +199,23 @@ export class PonsV2Adapter implements LaunchpadAdapter {
         toBlock,
       });
 
-      if (curveLogs.length > 0) {
-        const progress = await this.readCurveProgress(meta.curve, meta.graduationThreshold);
-        const last = curveLogs.at(-1)!;
-        await onObservation({
-          kind: "GRADUATION_HINT",
-          token,
-          creator: meta.creator,
-          blockNumber: last.blockNumber ?? undefined,
-          transactionHash: last.transactionHash ?? undefined,
-          observedAt: new Date().toISOString(),
-          payload: {
-            curve: meta.curve,
-            curveProgress: progress,
-            source: "PonsV2BondingCurve.CurveCompleted",
-          },
-        });
-      } else {
-        const progress = await this.readCurveProgress(meta.curve, meta.graduationThreshold);
-        await onObservation({
-          kind: progress >= 95 ? "GRADUATION_HINT" : "CURVE_UPDATE",
-          token,
-          creator: meta.creator,
-          observedAt: new Date().toISOString(),
-          payload: {
-            curve: meta.curve,
-            curveProgress: progress,
-            source: "PonsV2BondingCurve.realQuoteReserve",
-          },
-        });
-      }
+      const progress = await this.readCurveProgress(meta.curve, meta.graduationThreshold);
+      const last = curveLogs.at(-1);
+      await onObservation({
+        kind: last || progress >= 95 ? "GRADUATION_HINT" : "CURVE_UPDATE",
+        token,
+        creator: meta.creator,
+        blockNumber: last?.blockNumber ?? undefined,
+        transactionHash: last?.transactionHash ?? undefined,
+        observedAt: new Date().toISOString(),
+        payload: {
+          curve: meta.curve,
+          curveProgress: progress,
+          source: last
+            ? "PonsV2BondingCurve.CurveCompleted"
+            : "PonsV2BondingCurve.realQuoteReserve",
+        },
+      });
     }
   }
 
